@@ -1,65 +1,44 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mohammad Hossein Alikhani
-
 #include <geodesykit/geodesykit.hpp>
 #include "test_common.hpp"
-
+#include <cmath>
+#include <cstdio>
+#include <limits>
 using namespace geodesykit;
 
 int main()
 {
-    // ---- Test 1: Siegen -> Koelner Dom ----
-    {
-        auto g = geodesicInverse(50.8748, 8.0243,
-                                 50.94131, 6.95811);
-        REQUIRE(g.distance > 60000.0 && g.distance < 90000.0);
-        std::printf("Siegen -> Koelner Dom: %.3f km\n", g.distance / 1000.0);
-    }
+    const auto local = geodesicInverse(50.8748, 8.0243, 50.94131, 6.95811);
+    REQUIRE(local.converged);
+    REQUIRE(local.distance > 60000.0 && local.distance < 90000.0);
 
-    // ---- Test 2: Siegen -> Zeche Zollverein (Essen) ----
-    {
-        auto g = geodesicInverse(50.8748, 8.0243,
-                                 51.4865, 7.04408);
-        REQUIRE(g.distance > 70000.0 && g.distance < 120000.0);
-        std::printf("Siegen -> Zeche Zollverein: %.3f km\n", g.distance / 1000.0);
-    }
-
-    // ---- Test 3: Koelner Dom -> Drachenfels (Koenigswinter) ----
-    {
-        auto g = geodesicInverse(50.94131, 6.95811,
-                                 50.665269, 7.210238);
-        REQUIRE(g.distance > 25000.0 && g.distance < 50000.0);
-        std::printf("Koelner Dom -> Drachenfels: %.3f km\n", g.distance / 1000.0);
-    }
-
-    // ---- Test 4: Hermannsdenkmal (Detmold) -> Zeche Zollverein ----
-    {
-        auto g = geodesicInverse(51.91165, 8.83948,
-                                 51.4865, 7.04408);
-        REQUIRE(g.distance > 100000.0 && g.distance < 200000.0);
-        std::printf("Hermannsdenkmal -> Zeche Zollverein: %.3f km\n",
-                    g.distance / 1000.0);
-    }
-
-    // ---- Test 5: Equator quarter circumference (reference) ----
-    {
-        auto q = geodesicInverse(0.0, 0.0, 0.0, 90.0);
+    const auto quarter = geodesicInverse(0.0, 0.0, 0.0, 90.0);
 #ifdef GEODESYKIT_USE_GEOGRAPHICLIB
-        REQUIRE(std::fabs(q.distance - 10018754.17) < 1.0);
+    REQUIRE(std::fabs(quarter.distance - 10018754.17) < 1.0);
 #else
-        REQUIRE(std::fabs(q.distance - 10018754.17) < 100.0);
+    REQUIRE(std::fabs(quarter.distance - 10018754.17) < 100.0);
 #endif
-        std::printf("Equator (0 -> 90): %.1f m\n", q.distance);
-    }
 
-    // ---- Test 6: Symmetry check ----
-    {
-        auto ab = geodesicInverse(50.8748, 8.0243, 50.94131, 6.95811);
-        auto ba = geodesicInverse(50.94131, 6.95811, 50.8748, 8.0243);
-        REQUIRE(std::fabs(ab.distance - ba.distance) < 1e-6);
-        std::printf("Symmetry check: OK\n");
-    }
+    const auto same = geodesicInverse(12.0, 34.0, 12.0, 394.0);
+    REQUIRE(same.converged);
+    REQUIRE_NEAR(same.distance, 0.0, 1e-12);
 
-    std::printf("\nAll distance tests passed.\n");
+    // Regression: exact antipodes must never be reported as zero distance.
+    const auto antipodalDirect = vincentyInverse(0.0, 0.0, 0.0, 180.0);
+    REQUIRE(!antipodalDirect.converged);
+    const auto antipodal = geodesicInverse(0.0, 0.0, 0.0, 180.0);
+    REQUIRE(!antipodal.converged); // spherical fallback is approximate
+    REQUIRE(antipodal.distance > 19'000'000.0 && antipodal.distance < 21'000'000.0);
+
+    const auto nearAnti = geodesicInverse(10.0, 20.0, -10.0001, 199.9999);
+    REQUIRE(std::isfinite(nearAnti.distance));
+    REQUIRE(nearAnti.distance > 19'000'000.0);
+
+    const auto invalid = geodesicInverse(91.0, 0.0, 0.0, 0.0);
+    REQUIRE(!invalid.converged);
+    REQUIRE(!std::isfinite(invalid.distance));
+
+    std::printf("All distance tests passed.\n");
     return 0;
 }

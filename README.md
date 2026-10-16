@@ -1,428 +1,166 @@
 # GeodesyKit
 
-**A Modern C++ Geodesy Toolkit**
-*High-precision geodetic coordinate transforms, geodesic distances, and 3D triangulation.*
+**GeodesyKit** is a lightweight, header-only C++17 toolkit for common geodetic calculations. It provides geodetic/ECEF coordinate conversions, local ENU axes, geodesic inverse calculations, distance and bearing helpers, and 3D bearing-ray triangulation.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
-[![Header-only](https://img.shields.io/badge/header--only-yes-green.svg)](#header-only-usage)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#requirements)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23422149.svg)](https://doi.org/10.5281/zenodo.23422149)
-
-GeodesyKit is a lightweight, header-only C++17 library for high-precision
-geodetic computations on the WGS84 ellipsoid. It provides accurate
-ECEF ↔ geodetic coordinate conversion, geodesic distance and azimuth
-computation, and weighted 3D triangulation from bearing observations.
-
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Accuracy](#accuracy)
-- [Requirements](#requirements)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-  - [Header-only Usage](#header-only-usage)
-  - [CMake Integration](#cmake-integration)
-  - [Optional: GeographicLib](#optional-geographiclib)
-- [API Overview](#api-overview)
-  - [Coordinate Transforms](#coordinate-transforms)
-  - [Geodesic Distance](#geodesic-distance)
-  - [3D Triangulation](#3d-triangulation)
-- [Examples](#examples)
-- [Building & Testing](#building--testing)
-- [Project Structure](#project-structure)
-- [References](#references)
-- [Citation](#citation)
-- [Author](#author)
-- [License](#license)
-
----
+> **Status:** This README describes the proposed correction overlay for the repository. The overlay has not been published to the upstream GitHub repository as a release. Validate it on your target compilers and platforms before production use.
 
 ## Features
 
-- **Vermeille's method** for ECEF → geodetic conversion — machine precision, no iteration.
-- **Karney's geodesic algorithm** via [GeographicLib](https://geographiclib.sourceforge.io/) (optional) — ~15 nm accuracy.
-- **Vincenty inverse** fallback — ~0.5 mm accuracy, no external dependencies.
-- **Spherical (Haversine) fallback** for near-antipodal cases where Vincenty fails to converge.
-- **Weighted least-squares 3D triangulation** with Tikhonov regularization.
-- **Input validation** for weights, regularization parameter, and degenerate geometry.
-- **Header-only**, C++17, zero required dependencies.
-- **Fully documented** with Doxygen-friendly comments.
-- **Tested** against real-world NRW (Germany) coordinates.
-
----
-
-## Accuracy
-
-| Function | Method | Accuracy |
-|----------|--------|----------|
-| `geodetic2ecef` | Direct | ~nm |
-| `ecef2geodetic` | Vermeille (2002/2004) | ~nm |
-| `geodesicInverse` | Karney (GeographicLib) | ~15 nm |
-| `geodesicInverse` | Vincenty (fallback) | ~0.5 mm |
-| `geodesicInverse` | Haversine (last resort) | ~0.5% |
-| `triangulate3D` | Weighted LSQ + Tikhonov | ~cm |
-
-All values assume IEEE-754 `double` (64-bit) and WGS84 ellipsoid parameters.
-
----
+- WGS 84 ellipsoid constants.
+- Geodetic latitude/longitude/height to Earth-Centered, Earth-Fixed (ECEF) coordinates.
+- ECEF to geodetic coordinate conversion with guarded handling of invalid and difficult inputs.
+- East-North-Up (ENU) basis vectors for a local tangent frame.
+- Vincenty inverse geodesic calculations with an explicit convergence status.
+- Optional GeographicLib-backed geodesic calculations.
+- A spherical fallback for non-convergent Vincenty cases when GeographicLib is disabled; fallback results are marked `converged == false` because they are approximate.
+- 3D triangulation from two station locations and azimuth/elevation observations, using weighted perpendicular-distance least squares.
+- CMake install/export support and optional tests and example build.
 
 ## Requirements
 
-- **C++17** or later (uses `if constexpr`, structured bindings, `std::hypot` 3-arg, `std::fma`).
-- A standard-conforming compiler:
-  - GCC ≥ 7
-  - Clang ≥ 6
-  - MSVC ≥ 19.14 (Visual Studio 2017 15.7)
-- **Optional**: [GeographicLib](https://geographiclib.sourceforge.io/) for Karney-level geodesic accuracy.
+- A C++17-compatible compiler.
+- CMake 3.16 or newer to configure the project.
+- GeographicLib is optional and required only when `GEODESYKIT_USE_GEOGRAPHICLIB=ON`.
 
-No external dependencies are required for the core library.
+## Build
 
----
+Clone the repository, then configure and build it:
 
-## Quick Start
+```sh
+git clone https://github.com/MHAlikhani/geodesykit.git
+cd geodesykit
+cmake -S . -B build \
+  -DGEODESYKIT_BUILD_TESTS=ON \
+  -DGEODESYKIT_BUILD_EXAMPLES=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
+
+To use GeographicLib for geodesic calculations, install its development package and configure with:
+
+```sh
+cmake -S . -B build-geographiclib \
+  -DGEODESYKIT_USE_GEOGRAPHICLIB=ON \
+  -DGEODESYKIT_BUILD_TESTS=ON
+cmake --build build-geographiclib --parallel
+ctest --test-dir build-geographiclib --output-on-failure
+```
+
+The GeographicLib package must provide the CMake target `GeographicLib::GeographicLib`. If your platform's package exports a differently named target, adjust the CMake integration for that package.
+
+## Use as a header-only library
+
+The public headers are under `include/geodesykit/`. Include the umbrella header to access the library's main API:
 
 ```cpp
 #include <geodesykit/geodesykit.hpp>
-using namespace geodesykit;
 
 int main()
 {
-    // Siegen, Germany -> Cologne Cathedral, Germany
-    auto g = geodesicInverse(50.8748, 8.0243,    // Siegen
-                             50.94131, 6.95811); // Koelner Dom
+    // WGS 84 geodetic coordinates: latitude and longitude in degrees,
+    // height in metres.
+    const geodesykit::Vec3 ecef =
+        geodesykit::geodetic2ecef(51.5074, -0.1278, 35.0);
 
-    // g.distance  ~ 71 km
-    // g.azimuth1  ~ 275 deg
-    // g.converged = true
-}
-```
+    double lat = 0.0;
+    double lon = 0.0;
+    double height = 0.0;
+    geodesykit::ecef2geodetic(
+        ecef.x, ecef.y, ecef.z, lat, lon, height);
 
-Compile:
-
-```bash
-g++ -std=c++17 -I include my_app.cpp -o my_app
-```
-
----
-
-## Installation
-
-### Header-only Usage
-
-Simply copy the `include/geodesykit/` directory into your project and add:
-
-```cpp
-#include <geodesykit/geodesykit.hpp>
-```
-
-That's it — no build step required.
-
-### CMake Integration
-
-**Option A — `add_subdirectory`** (recommended for monorepos):
-
-```cmake
-add_subdirectory(third_party/geodesykit)
-target_link_libraries(myapp PRIVATE GeodesyKit::GeodesyKit)
-```
-
-**Option B — `find_package`** (after installing):
-
-```bash
-cmake -B build -DCMAKE_INSTALL_PREFIX=/usr/local
-cmake --build build --target install
-```
-
-Then in your project:
-
-```cmake
-find_package(GeodesyKit REQUIRED)
-target_link_libraries(myapp PRIVATE GeodesyKit::GeodesyKit)
-```
-
-### Optional: GeographicLib
-
-For nanometre-level geodesic accuracy (Karney's algorithm), enable GeographicLib:
-
-```bash
-cmake -B build -DGEODESYKIT_USE_GEOGRAPHICLIB=ON
-```
-
-Install GeographicLib first:
-
-```bash
-# Ubuntu / Debian
-sudo apt install libgeographic-dev
-
-# macOS
-brew install geographiclib
-
-# Windows (vcpkg)
-vcpkg install geographiclib
-```
-
-When `GEODESYKIT_USE_GEOGRAPHICLIB` is defined, `geodesicInverse()` automatically
-dispatches to `GeographicLib::Geodesic::Inverse()`. Otherwise, it falls back to
-the built-in Vincenty implementation.
-
----
-
-## API Overview
-
-### Coordinate Transforms
-
-```cpp
-#include <geodesykit/coordinate.hpp>
-
-// Geodetic (lat deg, lon deg, h [m]) -> ECEF (x, y, z) [m]
-Vec3 ecef = geodetic2ecef(lat, lon, h);
-
-// ECEF -> Geodetic (Vermeille, machine precision)
-double lat, lon, h;
-ecef2geodetic(ecef.x, ecef.y, ecef.z, lat, lon, h);
-
-// Local East-North-Up axes at a geodetic location
-Vec3 E, N, U;
-enuAxes(lat, lon, E, N, U);
-```
-
-### Geodesic Distance
-
-```cpp
-#include <geodesykit/distance.hpp>
-
-// Geodesic distance along WGS84 ellipsoid
-GeodesicResult g = geodesicInverse(lat1, lon1, lat2, lon2);
-// g.distance  - meters
-// g.azimuth1  - forward azimuth at point 1 [deg]
-// g.azimuth2  - forward azimuth at point 2 [deg]
-// g.converged - bool
-
-// 3D distance and bearing between two geodetic points (ENU-based)
-DistanceBearing db = geoDistanceBearing(lat1, lon1, alt1,
-                                        lat2, lon2, alt2);
-// db.distance  - 3D chord [m]
-// db.azimuth   - [0, 360) [deg]
-// db.elevation - [-90, 90] [deg]
-```
-
-> **Note**: `geoDistanceBearing` uses a flat-Earth (ENU) approximation
-> valid for distances up to a few hundred kilometres. For longer
-> distances, use `geodesicInverse()`.
-
-### 3D Triangulation
-
-```cpp
-#include <geodesykit/triangulation.hpp>
-
-// Weighted least-squares triangulation with Tikhonov regularization
-TriangulationResult r = triangulate3D(
-    lat1, lon1, h1, az1, el1,   // observer 1
-    lat2, lon2, h2, az2, el2,   // observer 2
-    weight1, weight2,           // inverse variances
-    lambda_reg);                // regularization parameter
-
-// r.lat, r.lon, r.alt   - triangulated point
-// r.residual            - distance between the two rays' closest points
-// r.range1, r.range2    - slant ranges from each observer
-// r.condition           - condition number estimate
-// r.degenerate          - true if the geometry is ill-conditioned
-//                         or inputs are invalid
-```
-
-**Tuning tips**:
-
-- `weight1` / `weight2` — set to the inverse variance of each observation.
-  For example, if azimuth standard deviation is 0.1 deg, use weight ≈ 100.
-- `lambda_reg` — recommended `1e-8` to `1e-6`. Increase if `u1 · u2` is
-  close to 1 (nearly parallel rays).
-- Invalid inputs (negative weights, negative `lambda_reg`, degenerate
-  geometry) are reported via `r.degenerate = true`.
-
----
-
-## Examples
-
-A complete example is provided in `examples/basic_usage.cpp`:
-
-```cpp
-#include <geodesykit/geodesykit.hpp>
-#include <cstdio>
-
-int main()
-{
-    using namespace geodesykit;
-
-    // NRW locations
-    const double lat_Siegen = 50.8748,  lon_Siegen = 8.0243;
-    const double lat_Dom    = 50.94131, lon_Dom    = 6.95811;
-
-    // Geodesic distance
-    auto g = geodesicInverse(lat_Siegen, lon_Siegen, lat_Dom, lon_Dom);
-    std::printf("Siegen -> Koelner Dom: %.3f km\n", g.distance / 1000.0);
-    std::printf("Forward azimuth: %.6f deg\n", g.azimuth1);
-
-    // Triangulation from two NRW observers
-    auto tri = triangulate3D(
-        50.913172, 8.005806, 550.0,  45.0, 10.0,   // Kalteiche
-        50.935689, 8.013476, 400.0, 225.0,  8.0,   // Kreuztal
-        1.0, 1.0, 1e-6);
-
-    std::printf("Triangulated: lat=%.8f lon=%.8f alt=%.3f m\n",
-                tri.lat, tri.lon, tri.alt);
     return 0;
 }
 ```
 
-Build and run:
+Compile with C++17 and add the `include` directory to your compiler's include paths. With CMake, link against `GeodesyKit::GeodesyKit` when using the project as a subdirectory or installed package.
 
-```bash
-g++ -std=c++17 -I include examples/basic_usage.cpp -o example
-./example
+## Coordinate conventions
+
+| Quantity | Convention |
+|---|---|
+| Latitude | Geodetic latitude, degrees, range `[-90, 90]` |
+| Longitude | Degrees; values are interpreted periodically where supported |
+| Height / altitude | Metres above the reference ellipsoid |
+| ECEF coordinates | Metres, Earth-Centered Earth-Fixed Cartesian frame |
+| Azimuth | Degrees clockwise from local north, normalized to `[0, 360)` in geodesic results |
+| Elevation | Degrees relative to the local horizontal plane |
+| Distance | Metres |
+
+## Main API
+
+### Coordinate conversion
+
+```cpp
+geodesykit::Vec3 geodesykit::geodetic2ecef(
+    double latDeg, double lonDeg, double h,
+    double a = geodesykit::WGS84_A,
+    double e2 = geodesykit::WGS84_E2) noexcept;
+
+void geodesykit::ecef2geodetic(
+    double x, double y, double z,
+    double& latDeg, double& lonDeg, double& h,
+    double a = geodesykit::WGS84_A,
+    double e2 = geodesykit::WGS84_E2) noexcept;
+
+void geodesykit::enuAxes(
+    double latDeg, double lonDeg,
+    geodesykit::Vec3& E,
+    geodesykit::Vec3& N,
+    geodesykit::Vec3& U) noexcept;
 ```
 
----
+Invalid coordinate or ellipsoid inputs are reported using NaN-valued outputs where the API uses numeric return values or output references. At the ECEF origin, geodetic latitude and longitude are undefined; the inverse conversion reports NaNs rather than inventing a unique location. Callers should check outputs for finiteness.
 
-## Building & Testing
+### Geodesic inverse and distance/bearing helpers
 
-```bash
-# Configure
-cmake -B build \
-    -DGEODESYKIT_BUILD_TESTS=ON \
-    -DGEODESYKIT_BUILD_EXAMPLES=ON
+`vincentyInverse(lat1, lon1, lat2, lon2, maxIter)` returns a `GeodesicResult` containing distance in metres, forward azimuths at both endpoints, and a `converged` flag. Near-antipodal pairs may not converge under Vincenty's method; always inspect this flag.
 
-# Build
-cmake --build build -j
+`geodesicInverse(lat1, lon1, lat2, lon2)` uses GeographicLib when the build option is enabled. Otherwise, it attempts Vincenty and returns a spherical approximation if Vincenty fails. In the fallback case, `converged` is `false`; this flag must not be ignored when accuracy matters.
 
-# Run tests
+`geoDistanceBearing(...)` provides a 3D ECEF chord distance and local ENU azimuth/elevation for two geodetic positions. Its distance is a straight-line chord distance, not the surface geodesic distance.
+
+### 3D triangulation
+
+`triangulate3D(...)` accepts two stations, each represented by latitude, longitude, height, azimuth and elevation, followed by optional positive weights and a non-negative regularization parameter. The solver minimizes weighted squared perpendicular distances to the two observed bearing lines, with a weak regularization term around the station midpoint.
+
+The result contains the estimated geodetic position, weighted RMS perpendicular residual, projected ranges along both bearing directions, a pivot-ratio diagnostic, and a `degenerate` status. `condition` is a pivot-ratio diagnostic, **not** a formal matrix condition number. Invalid input, failed solution, poor geometry, or a solution behind either forward ray is reported as degenerate; callers must check `degenerate` before using the estimated coordinates.
+
+Weights are relative weights. They can be interpreted as inverse variances only when that interpretation is appropriate for the perpendicular-distance residual model. They are not automatically converted from angular measurement uncertainties.
+
+## Error handling and numerical limitations
+
+- Validate results for finiteness and inspect each API's status flags.
+- Vincenty's inverse method is not globally convergent, especially for nearly antipodal points. Use GeographicLib when robust ellipsoidal geodesics are required.
+- The no-GeographicLib fallback is spherical and approximate; it is not equivalent to an ellipsoidal geodesic solution.
+- ECEF points near the ellipsoid's evolute or deep inside the ellipsoid can have ambiguous or numerically difficult geodetic representations. A failed conversion should be treated as a failure, not as a meaningful coordinate.
+- Two-ray triangulation can be poorly determined when the observation geometry is close to parallel. Check `degenerate`, the residual, ranges and pivot-ratio diagnostic, and validate results against the application's physical constraints.
+- Numerical tolerances depend on input scale, geometry, compiler and platform. Do not infer universal nanometre-level accuracy from successful round-trip tests alone.
+
+## Tests
+
+The CMake option `GEODESYKIT_BUILD_TESTS` builds independent test executables for coordinate conversion, distance/geodesic calculations, and triangulation. Run them with:
+
+```sh
 ctest --test-dir build --output-on-failure
-
-# Run example
-./build/geodesykit_example
 ```
 
-To enable GeographicLib-backed geodesics:
+For production qualification, also test on the actual target toolchains and compare representative results with an independent trusted implementation such as GeographicLib. Include antipodal and near-antipodal pairs, poles, antimeridian crossings, negative and high altitudes, invalid/non-finite inputs, and nearly parallel triangulation rays.
 
-```bash
-cmake -B build -DGEODESYKIT_USE_GEOGRAPHICLIB=ON
+## Install and consume from CMake
+
+```sh
+cmake --install build --prefix ./install
 ```
 
-The test suite covers:
+A consuming CMake project can then use `find_package(GeodesyKit CONFIG REQUIRED)` and link `GeodesyKit::GeodesyKit`, provided the install prefix is in `CMAKE_PREFIX_PATH`:
 
-- Round-trip precision for NRW locations (Siegen, Koelner Dom, Zeche Zollverein).
-- Geodesic distances between NRW landmarks.
-- Reference values (equator quarter-circumference, symmetry).
-- Triangulation with realistic NRW observer geometry.
-- Weighted vs. unweighted triangulation.
-- Degenerate (near-parallel) ray detection.
-- Input validation for invalid weights and regularization parameters.
-
----
-
-## Project Structure
-
-```
-geodesykit/
-├── include/
-│   └── geodesykit/
-│       ├── geodesykit.hpp       # Umbrella header
-│       ├── constants.hpp        # WGS84 constants
-│       ├── vec3.hpp             # 3D vector primitives
-│       ├── vermeille.hpp        # Vermeille ECEF -> geodetic
-│       ├── coordinate.hpp       # geodetic <-> ECEF, ENU axes
-│       ├── vincenty.hpp         # Vincenty inverse (fallback)
-│       ├── distance.hpp         # Geodesic & 3D distance
-│       └── triangulation.hpp    # Weighted LSQ triangulation
-├── tests/
-│   ├── test_common.hpp          # REQUIRE / REQUIRE_NEAR macros
-│   ├── test_coordinate.cpp
-│   ├── test_distance.cpp
-│   └── test_triangulation.cpp
-├── examples/
-│   └── basic_usage.cpp
-├── cmake/
-│   └── GeodesyKitConfig.cmake.in
-├── CMakeLists.txt
-├── CITATION.cff
-├── CHANGELOG.md
-├── LICENSE
-└── README.md
+```cmake
+find_package(GeodesyKit CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE GeodesyKit::GeodesyKit)
 ```
 
----
+When GeodesyKit was built with GeographicLib enabled, the package configuration also discovers GeographicLib for consumers.
 
-## References
+## License
 
-1. **H. Vermeille**, *Direct transformation from geocentric coordinates to geodetic coordinates*,
-   Journal of Geodesy, **76**(8):451–454, 2002.
-   [doi:10.1007/s00190-002-0273-6](https://doi.org/10.1007/s00190-002-0273-6)
-
-2. **H. Vermeille**, *Computing geodetic coordinates from geocentric coordinates*,
-   Journal of Geodesy, **78**(1):94–95, 2004.
-   [doi:10.1007/s00190-003-0364-z](https://doi.org/10.1007/s00190-003-0364-z)
-
-3. **C. F. F. Karney**, *Algorithms for geodesics*,
-   Journal of Geodesy, **87**(1):43–55, 2013.
-   [doi:10.1007/s00190-012-0578-z](https://doi.org/10.1007/s00190-012-0578-z)
-
-4. **T. Vincenty**, *Direct and inverse solutions of geodesics on the ellipsoid
-   with application of nested equations*,
-   Survey Review, **23**(176):88–93, 1975.
-   [doi:10.1179/sre.1975.23.176.88](https://doi.org/10.1179/sre.1975.23.176.88)
-
-5. **C. F. F. Karney**, *GeographicLib*,
-   [https://geographiclib.sourceforge.io/](https://geographiclib.sourceforge.io/)
-
-6. **NIMA**, *Department of Defense World Geodetic System 1984*,
-   Technical Report TR8350.2, 3rd ed., 2000.
-
----
-
-## Citation
-
-If you use GeodesyKit in academic work, please cite it as:
-
-```bibtex
-@software{alikhani2026geodesykit,
-  author       = {Alikhani, Mohammad Hossein},
-  title        = {{GeodesyKit}: A Modern {C++} Geodesy Toolkit},
-  year         = {2026},
-  version      = {0.1.0},
-  publisher    = {Zenodo},
-  doi          = {10.5281/zenodo.23422149},
-  url          = {https://github.com/MHAlikhani/geodesykit}
-}
-```
-
----
-
-## Contributing
-
-Contributions are welcome. Please:
-
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/my-feature`).
-3. Add tests for any new functionality.
-4. Ensure `ctest` passes.
-5. Submit a pull request.
-
-For bug reports, please include:
-
-- Compiler and version.
-- Operating system.
-- A minimal reproducible example.
-- Expected vs. observed behaviour.
-
----
-
-## Author
-
-**Mohammad Hossein Alikhani**
-Siegen, North Rhine-Westphalia, Germany
-
-- GitHub: [@MHAlikhani](https://github.com/MHAlikhani)
-- ORCID: [0009-0007-3942-2656](https://orcid.org/0009-0007-3942-2656)
-- Email: mohammad.hosein.alikhani08@gmail.com
+This project is distributed under the MIT License. See [`LICENSE`](LICENSE) for the complete license text.

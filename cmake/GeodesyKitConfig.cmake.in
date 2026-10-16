@@ -1,5 +1,9 @@
 @PACKAGE_INIT@
 
-include("${CMAKE_CURRENT_LIST_DIR}/GeodesyKitTargets.cmake")
+include(CMakeFindDependencyMacro)
+if(@GEODESYKIT_USE_GEOGRAPHICLIB@)
+    find_dependency(GeographicLib REQUIRED)
+endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/GeodesyKitTargets.cmake")
 check_required_components(GeodesyKit)

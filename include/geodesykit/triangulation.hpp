@@ -1,33 +1,82 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mohammad Hossein Alikhani
-
 #ifndef GEODESYKIT_TRIANGULATION_HPP
 #define GEODESYKIT_TRIANGULATION_HPP
 
 #include "coordinate.hpp"
-#include "vermeille.hpp"
 #include "vec3.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 
 namespace geodesykit {
 
 struct TriangulationResult {
-    double lat        = 0.0;
-    double lon        = 0.0;
-    double alt        = 0.0;
-    double residual   = 0.0;
-    double range1     = 0.0;
-    double range2     = 0.0;
-    double condition  = 0.0;
-    bool   degenerate = false;
+    double lat = 0.0;
+    double lon = 0.0;
+    double alt = 0.0;
+    double residual = 0.0;  // RMS perpendicular distance to the two observed lines, metres
+    double range1 = 0.0;    // signed projection along ray 1, metres
+    double range2 = 0.0;    // signed projection along ray 2, metres
+    double condition = 0.0; // pivot-ratio diagnostic; not a formal condition number
+    bool degenerate = false;
 };
 
-/// Weighted least-squares triangulation with Tikhonov regularization.
-///
-/// @param weight1      inverse variance of first observation
-/// @param weight2      inverse variance of second observation
-/// @param lambda_reg   regularization parameter (1e-8 .. 1e-4)
+namespace detail {
+inline bool finiteVec(const Vec3& v) noexcept
+{
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
+inline bool solve3x3(double m[3][3], double rhs[3], double x[3], double& pivotRatio) noexcept
+{
+    double largest = 0.0, smallestPivot = std::numeric_limits<double>::infinity();
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c) largest = std::max(largest, std::fabs(m[r][c]));
+    if (!(largest > 0.0) || !std::isfinite(largest)) return false;
+
+    for (int col = 0; col < 3; ++col) {
+        int pivot = col;
+        for (int r = col + 1; r < 3; ++r)
+            if (std::fabs(m[r][col]) > std::fabs(m[pivot][col])) pivot = r;
+        const double pv = std::fabs(m[pivot][col]);
+        if (!std::isfinite(pv) || pv <= largest * 1e-12) return false;
+        smallestPivot = std::min(smallestPivot, pv);
+        if (pivot != col) {
+            for (int c = col; c < 3; ++c) std::swap(m[pivot][c], m[col][c]);
+            std::swap(rhs[pivot], rhs[col]);
+        }
+        for (int r = col + 1; r < 3; ++r) {
+            const double factor = m[r][col] / m[col][col];
+            for (int c = col; c < 3; ++c) m[r][c] -= factor * m[col][c];
+            rhs[r] -= factor * rhs[col];
+        }
+    }
+    double largestPivot = 0.0;
+    for (int i = 0; i < 3; ++i) largestPivot = std::max(largestPivot, std::fabs(m[i][i]));
+    pivotRatio = largestPivot / smallestPivot;
+    for (int r = 2; r >= 0; --r) {
+        double value = rhs[r];
+        for (int c = r + 1; c < 3; ++c) value -= m[r][c] * x[c];
+        x[r] = value / m[r][r];
+        if (!std::isfinite(x[r])) return false;
+    }
+    return true;
+}
+
+inline Vec3 projectPerpendicular(const Vec3& v, const Vec3& unit) noexcept
+{
+    return sub(v, mul(unit, dot(v, unit)));
+}
+} // namespace detail
+
+/// Estimate the point minimizing weighted squared perpendicular distances to
+/// two bearing lines. Weights are positive relative weights (inverse variances
+/// if the perpendicular residual model is appropriate). lambda_reg weakly
+/// regularizes displacement from the station midpoint; it is dimensionless.
+/// Forward-ray violations are reported as degenerate rather than silently
+/// clamping the ranges and returning a point that is not the least-squares fit.
 inline TriangulationResult triangulate3D(double lat1, double lon1, double h1,
                                          double az1, double el1,
                                          double lat2, double lon2, double h2,
@@ -36,97 +85,91 @@ inline TriangulationResult triangulate3D(double lat1, double lon1, double h1,
                                          double weight2 = 1.0,
                                          double lambda_reg = 1e-6) noexcept
 {
-    TriangulationResult res;
-
-    if (weight1 < 0.0 || weight2 < 0.0 || lambda_reg < 0.0) {
-        res.degenerate = true;
-        return res;
+    const double qnan = std::numeric_limits<double>::quiet_NaN();
+    TriangulationResult out;
+    const auto fail = [&]() noexcept {
+        out.lat = out.lon = out.alt = out.residual = out.range1 = out.range2 = qnan;
+        out.degenerate = true;
+        return out;
+    };
+    if (!std::isfinite(lat1) || !std::isfinite(lon1) || !std::isfinite(h1) ||
+        !std::isfinite(az1) || !std::isfinite(el1) ||
+        !std::isfinite(lat2) || !std::isfinite(lon2) || !std::isfinite(h2) ||
+        !std::isfinite(az2) || !std::isfinite(el2) ||
+        lat1 < -90.0 || lat1 > 90.0 || lat2 < -90.0 || lat2 > 90.0 ||
+        el1 < -90.0 || el1 > 90.0 || el2 < -90.0 || el2 > 90.0 ||
+        !std::isfinite(weight1) || !std::isfinite(weight2) ||
+        !std::isfinite(lambda_reg) || weight1 <= 0.0 || weight2 <= 0.0 || lambda_reg < 0.0) {
+        return fail();
     }
 
-    const Vec3 P1 = geodetic2ecef(lat1, lon1, h1);
-    const Vec3 P2 = geodetic2ecef(lat2, lon2, h2);
+    const Vec3 p1 = geodetic2ecef(lat1, lon1, h1);
+    const Vec3 p2 = geodetic2ecef(lat2, lon2, h2);
+    if (!detail::finiteVec(p1) || !detail::finiteVec(p2)) return fail();
 
-    Vec3 E1, N1, U1, E2, N2, U2;
-    enuAxes(lat1, lon1, E1, N1, U1);
-    enuAxes(lat2, lon2, E2, N2, U2);
+    Vec3 e1, n1, u1, e2, n2, u2;
+    enuAxes(lat1, lon1, e1, n1, u1);
+    enuAxes(lat2, lon2, e2, n2, u2);
+    const double a1 = std::remainder(az1, 360.0) * DEG2RAD;
+    const double a2 = std::remainder(az2, 360.0) * DEG2RAD;
+    const double rEl1 = el1 * DEG2RAD, rEl2 = el2 * DEG2RAD;
+    const Vec3 d1 = normalize(add(add(mul(e1, std::cos(rEl1) * std::sin(a1)),
+                                     mul(n1, std::cos(rEl1) * std::cos(a1))),
+                                     mul(u1, std::sin(rEl1))));
+    const Vec3 d2 = normalize(add(add(mul(e2, std::cos(rEl2) * std::sin(a2)),
+                                     mul(n2, std::cos(rEl2) * std::cos(a2))),
+                                     mul(u2, std::sin(rEl2))));
+    if (!detail::finiteVec(d1) || !detail::finiteVec(d2) ||
+        norm(d1) < 0.99 || norm(d2) < 0.99) return fail();
 
-    const double a1 = az1 * DEG2RAD, e1 = el1 * DEG2RAD;
-    const double a2 = az2 * DEG2RAD, e2r = el2 * DEG2RAD;
+    const Vec3 anchor = mul(add(p1, p2), 0.5);
+    const Vec3 q1 = sub(p1, anchor), q2 = sub(p2, anchor);
+    const Vec3 dirs[2] = {d1, d2};
+    const Vec3 stations[2] = {q1, q2};
+    const double weights[2] = {weight1, weight2};
+    double matrix[3][3] = {{0.0,0.0,0.0},{0.0,0.0,0.0},{0.0,0.0,0.0}};
+    double rhs[3] = {0.0, 0.0, 0.0};
 
-    const double ce1 = std::cos(e1),  se1 = std::sin(e1);
-    const double ca1 = std::cos(a1),  sa1 = std::sin(a1);
-    const double ce2 = std::cos(e2r), se2 = std::sin(e2r);
-    const double ca2 = std::cos(a2),  sa2 = std::sin(a2);
-
-    const Vec3 u1_enu{ce1 * sa1, ce1 * ca1, se1};
-    const Vec3 u2_enu{ce2 * sa2, ce2 * ca2, se2};
-
-    const Vec3 u1 = add(add(mul(E1, u1_enu.x), mul(N1, u1_enu.y)),
-                        mul(U1, u1_enu.z));
-    const Vec3 u2 = add(add(mul(E2, u2_enu.x), mul(N2, u2_enu.y)),
-                        mul(U2, u2_enu.z));
-
-    const double n1 = norm(u1);
-    const double n2 = norm(u2);
-
-    if (n1 < 0.99 || n2 < 0.99) {
-        res.degenerate = true;
-        return res;
+    // Sum w_i (I - d_i d_i^T) X = sum w_i (I - d_i d_i^T) P_i.
+    // Work relative to the station midpoint to reduce ECEF cancellation.
+    for (int i = 0; i < 2; ++i) {
+        const Vec3& d = dirs[i];
+        const Vec3 projected = detail::projectPerpendicular(stations[i], d);
+        const double dv[3] = {d.x, d.y, d.z};
+        const double pv[3] = {projected.x, projected.y, projected.z};
+        for (int r = 0; r < 3; ++r) {
+            rhs[r] += weights[i] * pv[r];
+            for (int c = 0; c < 3; ++c)
+                matrix[r][c] += weights[i] * ((r == c ? 1.0 : 0.0) - dv[r] * dv[c]);
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        matrix[i][i] += lambda_reg;
+        // Regularization target is the midpoint (zero in the local frame).
     }
 
-    const Vec3 b = sub(P2, P1);
+    double delta[3] = {0.0, 0.0, 0.0};
+    double pivotRatio = 0.0;
+    if (!detail::solve3x3(matrix, rhs, delta, pivotRatio)) return fail();
+    out.condition = pivotRatio;
+    if (!std::isfinite(pivotRatio) || pivotRatio > 1e12) return fail();
 
-    const double A11 =  dot(u1, u1);
-    const double A12 = -dot(u1, u2);
-    const double A21 = -dot(u2, u1);
-    const double A22 =  dot(u2, u2);
+    const Vec3 estimate = add(anchor, Vec3{delta[0], delta[1], delta[2]});
+    const Vec3 from1 = sub(estimate, p1), from2 = sub(estimate, p2);
+    out.range1 = dot(from1, d1);
+    out.range2 = dot(from2, d2);
+    if (out.range1 < 0.0 || out.range2 < 0.0) return fail();
 
-    const double b1 =  dot(u1, b);
-    const double b2 = -dot(u2, b);
-
-    const double M11 = weight1 * A11 + lambda_reg;
-    const double M12 = weight1 * A12;
-    const double M21 = weight2 * A21;
-    const double M22 = weight2 * A22 + lambda_reg;
-
-    const double r1 = weight1 * b1;
-    const double r2 = weight2 * b2;
-
-    const double det = M11 * M22 - M12 * M21;
-
-    const double frob = std::sqrt(M11 * M11 + M12 * M12 +
-                                  M21 * M21 + M22 * M22);
-    res.condition = (frob * frob) / (std::fabs(det) + 1e-300);
-
-    if (std::fabs(det) < 1e-15) {
-        res.degenerate = true;
-        res.range1 = 0.0;
-        res.range2 = 0.0;
-        ecef2geodetic(P1.x, P1.y, P1.z, res.lat, res.lon, res.alt);
-        return res;
-    }
-
-    double t1 = (r1 * M22 - M12 * r2) / det;
-    double t2 = (M11 * r2 - M21 * r1) / det;
-
-    if (t1 < 0.0 || t2 < 0.0) {
-        res.degenerate = true;
-        t1 = std::max(0.0, t1);
-        t2 = std::max(0.0, t2);
-    }
-
-    res.range1 = t1;
-    res.range2 = t2;
-
-    const Vec3 Q1 = add(P1, mul(u1, res.range1));
-    const Vec3 Q2 = add(P2, mul(u2, res.range2));
-    const Vec3 Mp = mul(add(Q1, Q2), 0.5);
-
-    res.residual = norm(sub(Q1, Q2));
-    ecef2geodetic(Mp.x, Mp.y, Mp.z, res.lat, res.lon, res.alt);
-    return res;
+    const double r1 = norm(detail::projectPerpendicular(from1, d1));
+    const double r2 = norm(detail::projectPerpendicular(from2, d2));
+    out.residual = std::sqrt((weight1 * r1 * r1 + weight2 * r2 * r2) /
+                             (weight1 + weight2));
+    ecef2geodetic(estimate.x, estimate.y, estimate.z, out.lat, out.lon, out.alt);
+    if (!std::isfinite(out.lat) || !std::isfinite(out.lon) || !std::isfinite(out.alt) ||
+        !std::isfinite(out.residual)) return fail();
+    out.degenerate = false;
+    return out;
 }
 
 } // namespace geodesykit
-
 #endif // GEODESYKIT_TRIANGULATION_HPP
