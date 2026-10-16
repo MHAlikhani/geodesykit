@@ -1,0 +1,94 @@
+cff-version: 1.2.0
+message: "If you use GeodesyKit in academic work, please cite it as below."
+title: "GeodesyKit: A Modern C++ Geodesy Toolkit"
+abstract: >
+  GeodesyKit is a lightweight, header-only C++17 library for high-precision
+  geodetic computations on the WGS84 ellipsoid. It provides accurate
+  ECEF-to-geodetic coordinate conversion using Vermeille's method, geodesic
+  distance and azimuth computation via Karney's algorithm (with a Vincenty
+  fallback), and weighted least-squares 3D triangulation from bearing
+  observations with Tikhonov regularization.
+type: software
+authors:
+  - family-names: "Alikhani"
+    given-names: "Mohammad Hossein"
+    city: "Siegen"
+    country: "DE"
+    orcid: "https://orcid.org/0009-0007-3942-2656"
+    email: "mohammad.hosein.alikhani08@gmail.com"
+contact:
+  - family-names: "Alikhani"
+    given-names: "Mohammad Hossein"
+    city: "Siegen"
+    country: "DE"
+    orcid: "https://orcid.org/0009-0007-3942-2656"
+    email: "mohammad.hosein.alikhani08@gmail.com"
+repository-code: "https://github.com/MHAlikhani/geodesykit"
+url: "https://github.com/MHAlikhani/geodesykit"
+license: MIT
+license-url: "https://opensource.org/licenses/MIT"
+version: "0.1.0"
+date-released: "2026-10-16"
+keywords:
+  - "geodesy"
+  - "geodetic"
+  - "WGS84"
+  - "ECEF"
+  - "geodesic"
+  - "Karney"
+  - "Vincenty"
+  - "Vermeille"
+  - "triangulation"
+  - "coordinate-transformation"
+  - "C++"
+  - "header-only"
+  - "scientific-computing"
+references:
+  - type: article
+    title: "Direct transformation from geocentric coordinates to geodetic coordinates"
+    authors:
+      - family-names: "Vermeille"
+        given-names: "H."
+    journal: "Journal of Geodesy"
+    volume: 76
+    issue: 8
+    start: 451
+    end: 454
+    year: 2002
+    doi: "10.1007/s00190-002-0273-6"
+  - type: article
+    title: "Computing geodetic coordinates from geocentric coordinates"
+    authors:
+      - family-names: "Vermeille"
+        given-names: "H."
+    journal: "Journal of Geodesy"
+    volume: 78
+    issue: 1
+    start: 94
+    end: 95
+    year: 2004
+    doi: "10.1007/s00190-003-0364-z"
+  - type: article
+    title: "Algorithms for geodesics"
+    authors:
+      - family-names: "Karney"
+        given-names: "C. F. F."
+    journal: "Journal of Geodesy"
+    volume: 87
+    issue: 1
+    start: 43
+    end: 55
+    year: 2013
+    doi: "10.1007/s00190-012-0578-z"
+  - type: article
+    title: "Direct and inverse solutions of geodesics on the ellipsoid with application of nested equations"
+    authors:
+      - family-names: "Vincenty"
+        given-names: "T."
+    journal: "Survey Review"
+    volume: 23
+    issue: 176
+    start: 88
+    end: 93
+    year: 1975
+    doi: "10.1179/sre.1975.23.176.88"
