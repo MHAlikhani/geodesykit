@@ -7,7 +7,7 @@
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![Header-only](https://img.shields.io/badge/header--only-yes-green.svg)](#header-only-usage)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#requirements)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23422149.svg)](https://doi.org/10.5281/zenodo.23422149)
 
 GeodesyKit is a lightweight, header-only C++17 library for high-precision
 geodetic computations on the WGS84 ellipsoid. It provides accurate
@@ -392,7 +392,7 @@ If you use GeodesyKit in academic work, please cite it as:
   year         = {2026},
   version      = {0.1.0},
   publisher    = {Zenodo},
-  doi          = {10.5281/zenodo.XXXXXXX},
+  doi          = {10.5281/zenodo.23422149},
   url          = {https://github.com/MHAlikhani/geodesykit}
 }
 ```

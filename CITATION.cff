@@ -25,6 +25,7 @@ contact:
     email: "mohammad.hosein.alikhani08@gmail.com"
 repository-code: "https://github.com/MHAlikhani/geodesykit"
 url: "https://github.com/MHAlikhani/geodesykit"
+repository-artifact: "https://zenodo.org/records/23422149"
 license: MIT
 license-url: "https://opensource.org/licenses/MIT"
 version: "0.1.0"
@@ -43,6 +44,13 @@ keywords:
   - "C++"
   - "header-only"
   - "scientific-computing"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.23422149"
+    description: "Concept DOI (always points to the latest version)"
+  - type: doi
+    value: "10.5281/zenodo.23422150"
+    description: "Version DOI for v0.1.0"
 references:
   - type: article
     title: "Direct transformation from geocentric coordinates to geodetic coordinates"
