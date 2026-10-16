@@ -22,7 +22,7 @@ struct GeodesicResult {
 
 inline GeodesicResult vincentyInverse(double lat1, double lon1,
                                       double lat2, double lon2,
-                                      int maxIter = 200) noexcept
+                                      int maxIter = 100) noexcept
 {
     const double a = WGS84_A;
     const double f = WGS84_F;

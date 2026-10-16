@@ -6,6 +6,10 @@ project(GeodesyKit
     HOMEPAGE_URL "https://github.com/MHAlikhani/geodesykit"
     LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 # ---- Options ----
 option(GEODESYKIT_BUILD_TESTS       "Build unit tests"        OFF)
 option(GEODESYKIT_BUILD_EXAMPLES    "Build examples"          OFF)
@@ -14,7 +18,7 @@ option(GEODESYKIT_USE_GEOGRAPHICLIB "Use GeographicLib for geodesics" OFF)
 # ---- Library target (header-only) ----
 add_library(GeodesyKit INTERFACE)
 add_library(GeodesyKit::GeodesyKit ALIAS GeodesyKit)
-س
+
 target_include_directories(GeodesyKit INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
@@ -70,3 +74,12 @@ if(GEODESYKIT_BUILD_TESTS)
     target_link_libraries(geodesykit_tests PRIVATE GeodesyKit::GeodesyKit)
     add_test(NAME geodesykit_tests COMMAND geodesykit_tests)
 endif()
+
+# ---- CPack ----
+set(CPACK_PACKAGE_NAME "GeodesyKit")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_VENDOR "Mohammad Hossein Alikhani")
+set(CPACK_PACKAGE_CONTACT "mohammad.hosein.alikhani08@gmail.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A Modern C++ Geodesy Toolkit")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+include(CPack)

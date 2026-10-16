@@ -2,16 +2,9 @@
 // Copyright (c) 2026 Mohammad Hossein Alikhani
 
 #include <geodesykit/geodesykit.hpp>
-#include <cassert>
-#include <cmath>
-#include <cstdio>
+#include "test_common.hpp"
 
 using namespace geodesykit;
-
-static bool near(double a, double b, double tol)
-{
-    return std::fabs(a - b) < tol;
-}
 
 int main()
 {
@@ -23,9 +16,9 @@ int main()
         double lat, lon, h;
         ecef2geodetic(e.x, e.y, e.z, lat, lon, h);
 
-        assert(near(lat, lat0, 1e-10));
-        assert(near(lon, lon0, 1e-10));
-        assert(near(h,   h0,   1e-6));
+        REQUIRE_NEAR(lat, lat0, 1e-10);
+        REQUIRE_NEAR(lon, lon0, 1e-10);
+        REQUIRE_NEAR(h,   h0,   1e-6);
         std::printf("Siegen round-trip: OK (lat=%.10f, lon=%.10f, h=%.6f)\n",
                     lat, lon, h);
     }
@@ -38,9 +31,9 @@ int main()
         double lat, lon, h;
         ecef2geodetic(e.x, e.y, e.z, lat, lon, h);
 
-        assert(near(lat, lat0, 1e-10));
-        assert(near(lon, lon0, 1e-10));
-        assert(near(h,   h0,   1e-6));
+        REQUIRE_NEAR(lat, lat0, 1e-10);
+        REQUIRE_NEAR(lon, lon0, 1e-10);
+        REQUIRE_NEAR(h,   h0,   1e-6);
         std::printf("Koelner Dom round-trip: OK\n");
     }
 
@@ -52,25 +45,25 @@ int main()
         double lat, lon, h;
         ecef2geodetic(e.x, e.y, e.z, lat, lon, h);
 
-        assert(near(lat, lat0, 1e-10));
-        assert(near(lon, lon0, 1e-10));
-        assert(near(h,   h0,   1e-6));
+        REQUIRE_NEAR(lat, lat0, 1e-10);
+        REQUIRE_NEAR(lon, lon0, 1e-10);
+        REQUIRE_NEAR(h,   h0,   1e-6);
         std::printf("Zeche Zollverein round-trip: OK\n");
     }
 
     // ---- Test 4: Equator / Prime Meridian (reference) ----
     {
         Vec3 e = geodetic2ecef(0.0, 0.0, 0.0);
-        assert(near(e.x, WGS84_A, 1e-9));
-        assert(near(e.y, 0.0, 1e-9));
-        assert(near(e.z, 0.0, 1e-9));
+        REQUIRE_NEAR(e.x, WGS84_A, 1e-9);
+        REQUIRE_NEAR(e.y, 0.0,     1e-9);
+        REQUIRE_NEAR(e.z, 0.0,     1e-9);
         std::printf("Equator/Prime Meridian: OK\n");
     }
 
     // ---- Test 5: North Pole ----
     {
         Vec3 e = geodetic2ecef(90.0, 0.0, 0.0);
-        assert(near(e.z, WGS84_B, 1e-6));
+        REQUIRE_NEAR(e.z, WGS84_B, 1e-6);
         std::printf("North Pole: OK (z=%.3f m)\n", e.z);
     }
 
@@ -78,8 +71,7 @@ int main()
     {
         Vec3 e = geodetic2ecef(50.94131, 6.95811, 62.0);
         const double r = std::hypot(e.x, e.y, e.z);
-        // Lat ~51°N → geocentric radius near WGS84_A minus a small amount
-        assert(r > 6360000.0 && r < 6370000.0);
+        REQUIRE(r > 6360000.0 && r < 6370000.0);
         std::printf("Koelner Dom ECEF radius: %.3f m\n", r);
     }
 

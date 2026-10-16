@@ -36,6 +36,13 @@ inline TriangulationResult triangulate3D(double lat1, double lon1, double h1,
                                          double weight2 = 1.0,
                                          double lambda_reg = 1e-6) noexcept
 {
+    TriangulationResult res;
+
+    if (weight1 < 0.0 || weight2 < 0.0 || lambda_reg < 0.0) {
+        res.degenerate = true;
+        return res;
+    }
+
     const Vec3 P1 = geodetic2ecef(lat1, lon1, h1);
     const Vec3 P2 = geodetic2ecef(lat2, lon2, h2);
 
@@ -54,14 +61,15 @@ inline TriangulationResult triangulate3D(double lat1, double lon1, double h1,
     const Vec3 u1_enu{ce1 * sa1, ce1 * ca1, se1};
     const Vec3 u2_enu{ce2 * sa2, ce2 * ca2, se2};
 
-    const Vec3 u1 = normalize(add(add(mul(E1, u1_enu.x), mul(N1, u1_enu.y)),
-                                   mul(U1, u1_enu.z)));
-    const Vec3 u2 = normalize(add(add(mul(E2, u2_enu.x), mul(N2, u2_enu.y)),
-                                   mul(U2, u2_enu.z)));
+    const Vec3 u1 = add(add(mul(E1, u1_enu.x), mul(N1, u1_enu.y)),
+                        mul(U1, u1_enu.z));
+    const Vec3 u2 = add(add(mul(E2, u2_enu.x), mul(N2, u2_enu.y)),
+                        mul(U2, u2_enu.z));
 
-    TriangulationResult res;
+    const double n1 = norm(u1);
+    const double n2 = norm(u2);
 
-    if (norm(u1) < 0.5 || norm(u2) < 0.5) {
+    if (n1 < 0.99 || n2 < 0.99) {
         res.degenerate = true;
         return res;
     }
@@ -85,25 +93,30 @@ inline TriangulationResult triangulate3D(double lat1, double lon1, double h1,
     const double r2 = weight2 * b2;
 
     const double det = M11 * M22 - M12 * M21;
-    res.condition = std::fabs(M11 * M22 / (det + 1e-300));
+
+    const double frob = std::sqrt(M11 * M11 + M12 * M12 +
+                                  M21 * M21 + M22 * M22);
+    res.condition = (frob * frob) / (std::fabs(det) + 1e-300);
 
     if (std::fabs(det) < 1e-15) {
         res.degenerate = true;
-        res.range1 = std::max(0.0, -dot(u1, b));
+        res.range1 = 0.0;
         res.range2 = 0.0;
-    } else {
-        double t1 = (r1 * M22 - M12 * r2) / det;
-        double t2 = (M11 * r2 - M21 * r1) / det;
-
-        if (t1 < 0.0 || t2 < 0.0) {
-            res.degenerate = true;
-            t1 = std::max(0.0, t1);
-            t2 = std::max(0.0, t2);
-        }
-
-        res.range1 = t1;
-        res.range2 = t2;
+        ecef2geodetic(P1.x, P1.y, P1.z, res.lat, res.lon, res.alt);
+        return res;
     }
+
+    double t1 = (r1 * M22 - M12 * r2) / det;
+    double t2 = (M11 * r2 - M21 * r1) / det;
+
+    if (t1 < 0.0 || t2 < 0.0) {
+        res.degenerate = true;
+        t1 = std::max(0.0, t1);
+        t2 = std::max(0.0, t2);
+    }
+
+    res.range1 = t1;
+    res.range2 = t2;
 
     const Vec3 Q1 = add(P1, mul(u1, res.range1));
     const Vec3 Q2 = add(P2, mul(u2, res.range2));

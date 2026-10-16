@@ -7,6 +7,7 @@
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![Header-only](https://img.shields.io/badge/header--only-yes-green.svg)](#header-only-usage)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#requirements)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
 
 GeodesyKit is a lightweight, header-only C++17 library for high-precision
 geodetic computations on the WGS84 ellipsoid. It provides accurate
@@ -44,7 +45,9 @@ computation, and weighted 3D triangulation from bearing observations.
 - **Vermeille's method** for ECEF → geodetic conversion — machine precision, no iteration.
 - **Karney's geodesic algorithm** via [GeographicLib](https://geographiclib.sourceforge.io/) (optional) — ~15 nm accuracy.
 - **Vincenty inverse** fallback — ~0.5 mm accuracy, no external dependencies.
+- **Spherical (Haversine) fallback** for near-antipodal cases where Vincenty fails to converge.
 - **Weighted least-squares 3D triangulation** with Tikhonov regularization.
+- **Input validation** for weights, regularization parameter, and degenerate geometry.
 - **Header-only**, C++17, zero required dependencies.
 - **Fully documented** with Doxygen-friendly comments.
 - **Tested** against real-world NRW (Germany) coordinates.
@@ -59,6 +62,7 @@ computation, and weighted 3D triangulation from bearing observations.
 | `ecef2geodetic` | Vermeille (2002/2004) | ~nm |
 | `geodesicInverse` | Karney (GeographicLib) | ~15 nm |
 | `geodesicInverse` | Vincenty (fallback) | ~0.5 mm |
+| `geodesicInverse` | Haversine (last resort) | ~0.5% |
 | `triangulate3D` | Weighted LSQ + Tikhonov | ~cm |
 
 All values assume IEEE-754 `double` (64-bit) and WGS84 ellipsoid parameters.
@@ -86,17 +90,18 @@ using namespace geodesykit;
 
 int main()
 {
-    // Siegen, Germany → Cologne Cathedral, Germany
+    // Siegen, Germany -> Cologne Cathedral, Germany
     auto g = geodesicInverse(50.8748, 8.0243,    // Siegen
-                             50.94131, 6.95811); // Kölner Dom
+                             50.94131, 6.95811); // Koelner Dom
 
-    // g.distance ≈ 71 km
-    // g.azimuth1 ≈ 275°
+    // g.distance  ~ 71 km
+    // g.azimuth1  ~ 275 deg
     // g.converged = true
 }
 ```
 
 Compile:
+
 ```bash
 g++ -std=c++17 -I include my_app.cpp -o my_app
 ```
@@ -172,10 +177,10 @@ the built-in Vincenty implementation.
 ```cpp
 #include <geodesykit/coordinate.hpp>
 
-// Geodetic (lat°, lon°, h[m]) → ECEF (x, y, z) [m]
+// Geodetic (lat deg, lon deg, h [m]) -> ECEF (x, y, z) [m]
 Vec3 ecef = geodetic2ecef(lat, lon, h);
 
-// ECEF → Geodetic (Vermeille, machine precision)
+// ECEF -> Geodetic (Vermeille, machine precision)
 double lat, lon, h;
 ecef2geodetic(ecef.x, ecef.y, ecef.z, lat, lon, h);
 
@@ -191,18 +196,22 @@ enuAxes(lat, lon, E, N, U);
 
 // Geodesic distance along WGS84 ellipsoid
 GeodesicResult g = geodesicInverse(lat1, lon1, lat2, lon2);
-// g.distance  — meters
-// g.azimuth1  — forward azimuth at point 1 [°]
-// g.azimuth2  — forward azimuth at point 2 [°]
-// g.converged — bool
+// g.distance  - meters
+// g.azimuth1  - forward azimuth at point 1 [deg]
+// g.azimuth2  - forward azimuth at point 2 [deg]
+// g.converged - bool
 
 // 3D distance and bearing between two geodetic points (ENU-based)
 DistanceBearing db = geoDistanceBearing(lat1, lon1, alt1,
                                         lat2, lon2, alt2);
-// db.distance  — 3D chord [m]
-// db.azimuth   — [0, 360) [°]
-// db.elevation — [-90, 90] [°]
+// db.distance  - 3D chord [m]
+// db.azimuth   - [0, 360) [deg]
+// db.elevation - [-90, 90] [deg]
 ```
+
+> **Note**: `geoDistanceBearing` uses a flat-Earth (ENU) approximation
+> valid for distances up to a few hundred kilometres. For longer
+> distances, use `geodesicInverse()`.
 
 ### 3D Triangulation
 
@@ -216,18 +225,22 @@ TriangulationResult r = triangulate3D(
     weight1, weight2,           // inverse variances
     lambda_reg);                // regularization parameter
 
-// r.lat, r.lon, r.alt   — triangulated point
-// r.residual            — distance between the two rays' closest points
-// r.range1, r.range2    — slant ranges from each observer
-// r.condition           — condition number estimate
-// r.degenerate          — true if the geometry is ill-conditioned
+// r.lat, r.lon, r.alt   - triangulated point
+// r.residual            - distance between the two rays' closest points
+// r.range1, r.range2    - slant ranges from each observer
+// r.condition           - condition number estimate
+// r.degenerate          - true if the geometry is ill-conditioned
+//                         or inputs are invalid
 ```
 
 **Tuning tips**:
+
 - `weight1` / `weight2` — set to the inverse variance of each observation.
-  For example, if azimuth standard deviation is 0.1°, use weight ≈ 100.
-- `lambda_reg` — recommended `1e-8 … 1e-6`. Increase if `u1·u2` is close to 1
-  (nearly parallel rays).
+  For example, if azimuth standard deviation is 0.1 deg, use weight ≈ 100.
+- `lambda_reg` — recommended `1e-8` to `1e-6`. Increase if `u1 · u2` is
+  close to 1 (nearly parallel rays).
+- Invalid inputs (negative weights, negative `lambda_reg`, degenerate
+  geometry) are reported via `r.degenerate = true`.
 
 ---
 
@@ -271,14 +284,6 @@ g++ -std=c++17 -I include examples/basic_usage.cpp -o example
 ./example
 ```
 
-Expected output:
-
-```
-Siegen -> Koelner Dom: 71.xxx km
-Forward azimuth: 275.xxxxxx deg
-Triangulated: lat=50.xxxxxxxx lon=8.xxxxxxxx alt=xxx.xxx m
-```
-
 ---
 
 ## Building & Testing
@@ -307,12 +312,13 @@ cmake -B build -DGEODESYKIT_USE_GEOGRAPHICLIB=ON
 
 The test suite covers:
 
-- Round-trip precision for NRW locations (Siegen, Kölner Dom, Zeche Zollverein).
+- Round-trip precision for NRW locations (Siegen, Koelner Dom, Zeche Zollverein).
 - Geodesic distances between NRW landmarks.
 - Reference values (equator quarter-circumference, symmetry).
 - Triangulation with realistic NRW observer geometry.
 - Weighted vs. unweighted triangulation.
 - Degenerate (near-parallel) ray detection.
+- Input validation for invalid weights and regularization parameters.
 
 ---
 
@@ -325,12 +331,13 @@ geodesykit/
 │       ├── geodesykit.hpp       # Umbrella header
 │       ├── constants.hpp        # WGS84 constants
 │       ├── vec3.hpp             # 3D vector primitives
-│       ├── vermeille.hpp        # Vermeille ECEF → geodetic
-│       ├── coordinate.hpp       # geodetic ↔ ECEF, ENU axes
+│       ├── vermeille.hpp        # Vermeille ECEF -> geodetic
+│       ├── coordinate.hpp       # geodetic <-> ECEF, ENU axes
 │       ├── vincenty.hpp         # Vincenty inverse (fallback)
 │       ├── distance.hpp         # Geodesic & 3D distance
 │       └── triangulation.hpp    # Weighted LSQ triangulation
 ├── tests/
+│   ├── test_common.hpp          # REQUIRE / REQUIRE_NEAR macros
 │   ├── test_coordinate.cpp
 │   ├── test_distance.cpp
 │   └── test_triangulation.cpp
@@ -338,13 +345,11 @@ geodesykit/
 │   └── basic_usage.cpp
 ├── cmake/
 │   └── GeodesyKitConfig.cmake.in
-├── docs/
-│   └── README.md
 ├── CMakeLists.txt
-├── LICENSE
-├── README.md
+├── CITATION.cff
 ├── CHANGELOG.md
-└── .gitignore
+├── LICENSE
+└── README.md
 ```
 
 ---
@@ -381,10 +386,10 @@ geodesykit/
 If you use GeodesyKit in academic work, please cite it as:
 
 ```bibtex
-@software{alikhani2025geodesykit,
+@software{alikhani2026geodesykit,
   author       = {Alikhani, Mohammad Hossein},
   title        = {{GeodesyKit}: A Modern {C++} Geodesy Toolkit},
-  year         = {2025},
+  year         = {2026},
   version      = {0.1.0},
   publisher    = {Zenodo},
   doi          = {10.5281/zenodo.XXXXXXX},
@@ -392,7 +397,7 @@ If you use GeodesyKit in academic work, please cite it as:
 }
 ```
 
-> Replace `XXXXXXX` with the DOI assigned by Zenodo after your first release.
+> Replace `XXXXXXX` with the DOI assigned by Zenodo after your first tagged release.
 
 ---
 
@@ -407,6 +412,7 @@ Contributions are welcome. Please:
 5. Submit a pull request.
 
 For bug reports, please include:
+
 - Compiler and version.
 - Operating system.
 - A minimal reproducible example.
@@ -419,8 +425,9 @@ For bug reports, please include:
 **Mohammad Hossein Alikhani**
 Siegen, North Rhine-Westphalia, Germany
 
-- GitHub: [@MHAlikhani](https://github.com/MHAlikhani/geodesykit)
-- Email: *(mohammad.hosein.alikhani08@gmail.com)*
+- GitHub: [@MHAlikhani](https://github.com/MHAlikhani)
+- ORCID: [0009-0007-3942-2656](https://orcid.org/0009-0007-3942-2656)
+- Email: mohammad.hosein.alikhani08@gmail.com
 
 ---
 

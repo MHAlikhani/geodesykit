@@ -16,7 +16,11 @@ struct Vec3 {
 
 inline double dot(const Vec3& a, const Vec3& b) noexcept
 {
+#if defined(__FMA__) || defined(__AVX2__)
     return std::fma(a.x, b.x, std::fma(a.y, b.y, a.z * b.z));
+#else
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+#endif
 }
 
 inline double norm(const Vec3& v) noexcept
